@@ -1,0 +1,10 @@
+{
+  "api": "http://127.0.0.1:9090",
+  "secret": "",
+  "proxy": "socks5://127.0.0.1:7890",
+  "group": "",
+  "download_bytes": 25000000,
+  "upload_bytes": 25000000,
+  "bandwidth_timeout": 20.0,
+  "switch_wait": 0.5
+}
