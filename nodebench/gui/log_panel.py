@@ -1,16 +1,20 @@
 import customtkinter as ctk
+from nodebench.gui.i18n import t
 
 class LogPanel(ctk.CTkFrame):
     MAX_LINES = 100
 
     def __init__(self, master, **kwargs):
         super().__init__(master, **kwargs)
-        header = ctk.CTkLabel(self, text="Log", font=ctk.CTkFont(size=13, weight="bold"), anchor="w")
-        header.pack(fill="x", padx=6, pady=(2, 0))
+        self._header = ctk.CTkLabel(self, text=t("log_title"), font=ctk.CTkFont(size=13, weight="bold"), anchor="w")
+        self._header.pack(fill="x", padx=6, pady=(2, 0))
         self._text = ctk.CTkTextbox(self, wrap="word", height=120, font=ctk.CTkFont(size=12))
         self._text.pack(fill="both", expand=True, padx=4, pady=2)
         self._text.configure(state="disabled")
         self._line_count = 0
+
+    def set_title(self, title: str):
+        self._header.configure(text=title)
 
     def write(self, message: str, color: str = "white"):
         self._text.configure(state="normal")

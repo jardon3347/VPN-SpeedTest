@@ -17,6 +17,7 @@ class MihomoClient:
             headers=headers,
             timeout=config.connect_timeout
         )
+        self._proxies_cache: dict | None = None
 
     def __enter__(self):
         return self
@@ -39,7 +40,7 @@ class MihomoClient:
         if r.status_code == 401:
             raise MihomoError("Unauthorized - check secret")
         if r.status_code != 200:
-            raise MihomoError(f"HTTP {r.status_code}")
+            raise MihomoError(f"HTTP {r.status_code} from {path}")
         data = r.json()
         if isinstance(data, dict):
             return data
@@ -56,10 +57,16 @@ class MihomoClient:
         if r.status_code not in (204, 200, 404):
             raise MihomoError(f"HTTP {r.status_code}")
 
+    def _fetch_proxies(self) -> dict:
+        """Lazy-load and cache the /proxies response."""
+        if self._proxies_cache is None:
+            self._proxies_cache = self._get("/proxies").get("proxies", {})
+        return self._proxies_cache
+
     def list_groups(self) -> list[dict]:
-        data = self._get("/proxies")
+        all_proxies = self._fetch_proxies()
         groups = []
-        for name, info in data.get("proxies", {}).items():
+        for name, info in all_proxies.items():
             if info.get("type") in ("Selector", "URLTest", "Fallback", "LoadBalance"):
                 groups.append({
                     "name": name,
@@ -69,32 +76,39 @@ class MihomoClient:
         return groups
 
     def get_node_list(self, group_name: str = "Select") -> list[Node]:
-        data = self._get(f"/proxies/{group_name}")
+        """Fetch leaf-node proxies directly under a group, using history-based latency."""
+        all_proxies = self._fetch_proxies()
+        group = all_proxies.get(group_name)
+        if not group:
+            raise MihomoError(f"Group '{group_name}' not found")
+
         nodes = []
-        delay_map = self._get_delays(group_name)
-        for name in data.get("all", []):
-            if name in ("DIRECT", "REJECT", "REJECT-DROP"):
+        skip_set = {"DIRECT", "REJECT", "REJECT-DROP"}
+        group_types = {"Selector", "URLTest", "Fallback", "LoadBalance"}
+        for name in group.get("all", []):
+            if name in skip_set:
                 continue
-            provider = data.get("provider", {})
-            protocol = ""
-            for pname, pinfo in provider.items():
-                if name in pinfo.get("proxies", []):
-                    protocol = pname
-                    break
-            latency = delay_map.get(name)
-            node = Node(name=name, protocol=protocol, latency=latency)
+            proxy = all_proxies.get(name, {})
+            if proxy.get("type") in group_types:
+                continue
+            latency = self._extract_delay(proxy)
+            node = Node(name=name, latency=latency)
+            if latency is None:
+                node.reachable = False
+                node.error = "no delay history (node may need URL-test)"
             nodes.append(node)
         return nodes
 
-    def _get_delays(self, group_name: str) -> dict[str, float]:
-        try:
-            data = self._get(f"/group/{group_name}/delay")
-            result = {}
-            for entry in data.get("data", data.get("delay", [])):
-                result[entry.get("name", "")] = entry.get("delay", None)
-            return result
-        except Exception:
-            return {}
+    @staticmethod
+    def _extract_delay(proxy: dict) -> float | None:
+        """Extract latest delay from proxy history. Returns None if no valid delay."""
+        history = proxy.get("history", [])
+        if not history:
+            return None
+        delay = history[-1].get("delay", None)
+        if delay is None or delay == 0:
+            return None
+        return float(delay)
 
     def switch_node(self, node_name: str, group_name: str = "Select"):
         self._put(f"/proxies/{group_name}", {"name": node_name})

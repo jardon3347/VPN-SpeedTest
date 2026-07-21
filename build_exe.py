@@ -23,8 +23,16 @@ cmd = [
 ]
 
 print(">>> Building NodeBench-GUI.exe ...")
-subprocess.run(cmd)
+result = subprocess.run(cmd)
+if result.returncode != 0:
+    print(">>> PyInstaller failed with exit code", result.returncode)
+    sys.exit(1)
+
 print(">>> Moving exe to project root ...")
 import shutil
-shutil.copy(ROOT / "exe_dist" / "NodeBench-GUI.exe", ROOT / "NodeBench-GUI.exe")
+exe_path = ROOT / "exe_dist" / "NodeBench-GUI.exe"
+if not exe_path.exists():
+    print(f">>> ERROR: {exe_path} not found — PyInstaller did not produce output")
+    sys.exit(1)
+shutil.copy(exe_path, ROOT / "NodeBench-GUI.exe")
 print(">>> Done: NodeBench-GUI.exe")

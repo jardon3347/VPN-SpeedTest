@@ -1,12 +1,16 @@
 from __future__ import annotations
 import csv
 import queue
+import threading
 from pathlib import Path
 import customtkinter as ctk
 from nodebench.gui.config_panel import ConfigPanel
 from nodebench.gui.log_panel import LogPanel
 from nodebench.gui.node_list import NodeTable, flag_emoji
 from nodebench.gui.test_runner import TestRunner
+from nodebench.gui.i18n import t
+from nodebench.mihomo_client import MihomoClient
+from nodebench.models import TestConfig
 
 OUTPUT_DIR = Path(__file__).parent.parent.parent / "outputs"
 
@@ -15,13 +19,14 @@ class NodeBenchApp(ctk.CTk):
         super().__init__()
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
-        self.title("NodeBench GUI")
+        self.title(t("window_title"))
         self.geometry("1050x750")
         self.minsize(950, 550)
         self._runner: TestRunner | None = None
         self._nodes: list = []
         self._all_nodes: list = []
         self._build_ui()
+        self._refresh_all_texts()
         self._poll_messages()
 
     def _build_ui(self):
@@ -29,7 +34,7 @@ class NodeBenchApp(ctk.CTk):
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=3)
         self.grid_rowconfigure(1, weight=2)
-        self._config = ConfigPanel(self)
+        self._config = ConfigPanel(self, on_lang_change=self._refresh_all_texts)
         self._config.grid(row=0, column=0, sticky="nsew", padx=4, pady=(4, 2))
         self._log = LogPanel(self)
         self._log.grid(row=1, column=0, sticky="nsew", padx=4, pady=(2, 4))
@@ -46,45 +51,73 @@ class NodeBenchApp(ctk.CTk):
     def _build_toolbar(self):
         toolbar = ctk.CTkFrame(self._right, fg_color="transparent")
         toolbar.grid(row=0, column=0, sticky="ew", pady=(2, 4))
-        self._btn_stage1 = ctk.CTkButton(toolbar, text="Stage 1  Fetch Nodes", command=self._on_stage1, width=140)
+        self._btn_stage1 = ctk.CTkButton(toolbar, text=t("btn_stage1"), command=self._on_stage1, width=140)
         self._btn_stage1.pack(side="left", padx=2)
-        self._btn_stage2 = ctk.CTkButton(toolbar, text="Stage 2  Test Selected", command=self._on_stage2, width=140, state="disabled")
+        self._btn_stage2 = ctk.CTkButton(toolbar, text=t("btn_stage2"), command=self._on_stage2, width=140, state="disabled")
         self._btn_stage2.pack(side="left", padx=2)
-        self._btn_all = ctk.CTkButton(toolbar, text="Select All", command=self._on_select_all, width=80, fg_color="gray")
+        self._btn_all = ctk.CTkButton(toolbar, text=t("btn_select_all"), command=self._on_select_all, width=80, fg_color="gray")
         self._btn_all.pack(side="left", padx=2)
-        self._btn_none = ctk.CTkButton(toolbar, text="None", command=self._on_select_none, width=60, fg_color="gray")
+        self._btn_none = ctk.CTkButton(toolbar, text=t("btn_select_none"), command=self._on_select_none, width=60, fg_color="gray")
         self._btn_none.pack(side="left", padx=2)
-        self._btn_export = ctk.CTkButton(toolbar, text="Export CSV", command=self._on_export, width=80, fg_color="gray")
+        self._btn_export = ctk.CTkButton(toolbar, text=t("btn_export"), command=self._on_export, width=80, fg_color="gray")
         self._btn_export.pack(side="left", padx=2)
         self._search_var = ctk.StringVar(value="")
-        self._search_entry = ctk.CTkEntry(toolbar, width=140, height=26, placeholder_text="Search nodes...", textvariable=self._search_var)
+        self._search_entry = ctk.CTkEntry(toolbar, width=140, height=26, placeholder_text=t("search_placeholder"), textvariable=self._search_var)
         self._search_entry.pack(side="right", padx=(10, 2))
         self._search_var.trace_add("write", lambda *a: self._on_search())
+        self._toolbar_widgets = [self._btn_stage1, self._btn_stage2, self._btn_all, self._btn_none, self._btn_export, self._search_entry]
 
     def _build_node_list(self):
-        self._node_list = NodeTable(self._right)
+        self._node_list = NodeTable(self._right, on_activate=self._on_activate_node)
         self._node_list.grid(row=1, column=0, sticky="nsew", padx=2, pady=2)
 
     def _build_progress_area(self):
         pf = ctk.CTkFrame(self._right, fg_color="transparent")
         pf.grid(row=2, column=0, sticky="ew", pady=(2, 0))
-        self._lbl_trace = ctk.CTkLabel(pf, text="Select nodes and click Stage 2.", anchor="w", font=ctk.CTkFont(size=12))
+        self._lbl_trace = ctk.CTkLabel(pf, text=t("lbl_hint"), anchor="w", font=ctk.CTkFont(size=12))
         self._lbl_trace.pack(fill="x", padx=4, pady=(2, 0))
         dlf = ctk.CTkFrame(pf, fg_color="transparent"); dlf.pack(fill="x", padx=4, pady=1)
-        ctk.CTkLabel(dlf, text="DL", width=25).pack(side="left")
+        ctk.CTkLabel(dlf, text=t("lbl_dl"), width=25).pack(side="left")
         self._dl_bar = ctk.CTkProgressBar(dlf, height=14); self._dl_bar.pack(side="left", padx=4, fill="x", expand=True)
         self._dl_bar.set(0)
-        self._lbl_dl = ctk.CTkLabel(dlf, text="0/0 MB  0 Mbps", width=170); self._lbl_dl.pack(side="right")
+        self._lbl_dl = ctk.CTkLabel(dlf, text=t("lbl_default_speed"), width=170); self._lbl_dl.pack(side="right")
         ulf = ctk.CTkFrame(pf, fg_color="transparent"); ulf.pack(fill="x", padx=4, pady=1)
-        ctk.CTkLabel(ulf, text="UL", width=25).pack(side="left")
+        ctk.CTkLabel(ulf, text=t("lbl_ul"), width=25).pack(side="left")
         self._ul_bar = ctk.CTkProgressBar(ulf, height=14); self._ul_bar.pack(side="left", padx=4, fill="x", expand=True)
         self._ul_bar.set(0)
-        self._lbl_ul = ctk.CTkLabel(ulf, text="0/0 MB  0 Mbps", width=170); self._lbl_ul.pack(side="right")
+        self._lbl_ul = ctk.CTkLabel(ulf, text=t("lbl_default_speed"), width=170); self._lbl_ul.pack(side="right")
+
+    def _on_activate_node(self, node):
+        """Double-click: switch to this node in background thread."""
+        cfg = self._config.get_config()
+        group = cfg.get("group", "")
+        name = node.name
+        self._lbl_trace.configure(text=t("msg_switch_to", group=group, name=name))
+        def _switch():
+            try:
+                tc = TestConfig(
+                    api_url=cfg.get("api", "http://127.0.0.1:9090"),
+                    secret=cfg.get("secret", ""),
+                    group_name=group,
+                )
+                with MihomoClient(tc) as mihomo:
+                    g = group or self._auto_group(mihomo)
+                    mihomo.switch_and_reset(name, group_name=g, wait=0.3)
+            except Exception:
+                pass
+        threading.Thread(target=_switch, daemon=True).start()
+        self._log.write(t("msg_switched", name=name), "#88BBFF")
+
+    @staticmethod
+    def _auto_group(mihomo) -> str:
+        groups = [g for g in mihomo.list_groups() if g["name"] != "GLOBAL"]
+        selectors = [g for g in groups if g["type"] == "Selector"]
+        return selectors[0]["name"] if selectors else "Select"
 
     def _on_stage1(self):
         self._disable_buttons()
         self._log.clear()
-        self._log.write("Stage 1: Fetching nodes from mihomo...", "#88BBFF")
+        self._log.write(t("msg_stage1_start"), "#88BBFF")
         self._node_list.clear()
         self._runner = TestRunner(self._config.get_config(), mode="stage1")
         self._runner.start()
@@ -92,10 +125,10 @@ class NodeBenchApp(ctk.CTk):
     def _on_stage2(self):
         selected = self._node_list.get_selected()
         if not selected:
-            self._log.write("No nodes selected!", "#F44336")
+            self._log.write(t("msg_no_nodes_selected"), "#F44336")
             return
         self._disable_buttons()
-        self._log.write(f"Stage 2: Testing {len(selected)} nodes...", "#88BBFF")
+        self._log.write(t("msg_stage2_start", count=len(selected)), "#88BBFF")
         self._runner = TestRunner(self._config.get_config(), mode="stage2", selected_nodes=selected)
         self._runner.start()
 
@@ -115,14 +148,25 @@ class NodeBenchApp(ctk.CTk):
         path = OUTPUT_DIR / "result.csv"
         selected = self._node_list.get_selected()
         if not selected:
-            self._log.write("Nothing to export!", "#F44336")
+            self._log.write(t("msg_nothing_to_export"), "#F44336")
             return
         with open(path, "w", newline="", encoding="utf-8-sig") as f:
             w = csv.writer(f)
-            w.writerow(["name","protocol","latency_ms","download_MBs","upload_MBs","reachable"])
+            w.writerow([t("col_name"), "protocol", "latency_ms", "download_MBs", "upload_MBs", "reachable"])
             for n in selected:
                 w.writerow([n.name, n.protocol, n.latency or "", n.download/8 if n.download else "", n.upload/8 if n.upload else "", n.reachable])
-        self._log.write(f"Exported -> {path.name}", "green")
+        self._log.write(t("msg_exported", name=path.name), "green")
+
+    def _refresh_all_texts(self):
+        self.title(t("window_title"))
+        self._btn_stage1.configure(text=t("btn_stage1"))
+        self._btn_stage2.configure(text=t("btn_stage2"))
+        self._btn_all.configure(text=t("btn_select_all"))
+        self._btn_none.configure(text=t("btn_select_none"))
+        self._btn_export.configure(text=t("btn_export"))
+        self._lbl_trace.configure(text=t("lbl_hint"))
+        self._log.set_title(t("log_title"))
+        self._node_list.refresh_headers()
 
     def _disable_buttons(self):
         for b in [self._btn_stage1, self._btn_stage2, self._btn_all, self._btn_none]:
@@ -147,12 +191,16 @@ class NodeBenchApp(ctk.CTk):
     def _handle_message(self, msg: dict):
         mtype = msg.get("type", "")
         if mtype == "stage": pass
+        elif mtype == "node_start":
+            self._dl_bar.set(0); self._ul_bar.set(0)
+            self._lbl_dl.configure(text=t("lbl_default_speed"))
+            self._lbl_ul.configure(text=t("lbl_default_speed"))
         elif mtype == "stage1_done":
             nodes = msg["nodes"]
             self._all_nodes = list(nodes)
             self._nodes = nodes
             self._node_list.add_nodes(nodes)
-            self._log.write(f"Stage 1 done: {msg['reachable']}/{msg['total']} nodes (mihomo latency)", "green")
+            self._log.write(t("msg_stage1_done", reachable=msg['reachable'], total=msg['total']), "green")
             groups = msg.get("groups", [])
             current_group = msg.get("current_group", "")
             if groups:
@@ -180,20 +228,20 @@ class NodeBenchApp(ctk.CTk):
             if total > 0: self._ul_bar.set(done / total)
             self._lbl_ul.configure(text=f"{done/1e6:.1f}/{total/1e6:.0f} MB  {speed:.1f} Mbps")
         elif mtype == "node_done":
-            self._log.write(f"  {msg['name'][:40]:<42} DL={msg['download']:5.1f}  UL={msg['upload']:5.1f} Mbps")
+            self._log.write(t("msg_node_done", name=msg['name'][:42], download=msg['download'], upload=msg['upload']))
             self._node_list.update_node_by_name(msg["name"], msg["download"], msg["upload"])
         elif mtype == "best_node":
-            self._log.write(f"Best -> [{msg['group']}] {msg['name'][:40]}  DL={msg['download']:.1f}  UL={msg['upload']:.1f} Mbps", "#4CAF50")
-            self._lbl_trace.configure(text=f"Best: [{msg['group']}] {msg['name']}  DL={msg['download']:.1f}  UL={msg['upload']:.1f} Mbps")
+            self._log.write(t("msg_best_log", group=msg['group'], name=msg['name'][:40], download=msg['download'], upload=msg['upload']), "#4CAF50")
+            self._lbl_trace.configure(text=t("msg_best_lbl", group=msg['group'], name=msg['name'], download=msg['download'], upload=msg['upload']))
         elif mtype == "done":
-            self._log.write(f"All {msg['count']} nodes tested. Done.", "#88BBFF")
+            self._log.write(t("msg_all_done", count=msg['count']), "#88BBFF")
             self._dl_bar.set(0); self._ul_bar.set(0)
-            self._lbl_dl.configure(text="0/0 MB  0 Mbps")
-            self._lbl_ul.configure(text="0/0 MB  0 Mbps")
+            self._lbl_dl.configure(text=t("lbl_default_speed"))
+            self._lbl_ul.configure(text=t("lbl_default_speed"))
             self._enable_buttons()
             self._runner = None
         elif mtype in ("error", "node_error"):
-            self._log.write(f"ERROR: {msg.get('message', msg.get('error', 'unknown'))}", "#F44336")
+            self._log.write(t("msg_error_prefix", msg=msg.get('message', msg.get('error', 'unknown'))), "#F44336")
             if mtype == "error":
                 self._enable_buttons()
                 self._runner = None

@@ -102,35 +102,58 @@ def run_test(cfg: dict, stage: int, load_cache=False, selected_nodes=""):
 
 def main():
     cfg = load_config()
+    settings_only = "--settings" in sys.argv
+
     while True:
-        print("\n" + "=" * 50)
-        print("  NodeBench - VPN Node Speed Tester")
-        print("=" * 50)
-        print("  1. Edit Connection Settings")
-        print("  2. Edit Test Parameters")
-        print("  3. Edit Output Settings")
-        print("  4. Show Current Config")
-        print("  5. Stage 1: Latency Test")
-        print("  6. Stage 2: Bandwidth Test (from cache)")
-        print("  7. Full Test")
-        print("  0. Exit")
-        choice = input("\n  Choice: ").strip()
-        if choice == "1":
-            edit_connection(cfg)
-        elif choice == "2":
-            edit_test_params(cfg)
-        elif choice == "3":
-            edit_output(cfg)
-        elif choice == "4":
-            show_config(cfg)
-        elif choice == "5":
-            run_test(cfg, 1)
-        elif choice == "6":
-            subprocess.run([sys.executable, "main.py", "--load-cache", "cache.json", "--stage", "2"])
-        elif choice == "7":
-            run_test(cfg, 2)
-        elif choice == "0":
-            break
+        if settings_only:
+            print("\n" + "=" * 50)
+            print("  NodeBench - Settings")
+            print("=" * 50)
+            print("  【1】Edit Connection Settings")
+            print("  【2】Edit Test Parameters")
+            print("  【3】Edit Output Settings")
+            print("  【4】Show Current Config")
+            print("  【0】Back")
+            choice = input("\n  Choice: ").strip()
+            if choice == "1":
+                edit_connection(cfg)
+            elif choice == "2":
+                edit_test_params(cfg)
+            elif choice == "3":
+                edit_output(cfg)
+            elif choice == "4":
+                show_config(cfg)
+            elif choice == "0":
+                break
+        else:
+            print("\n" + "=" * 50)
+            print("  NodeBench - VPN Node Speed Tester")
+            print("=" * 50)
+            print("  【1】Edit Connection Settings")
+            print("  【2】Edit Test Parameters")
+            print("  【3】Edit Output Settings")
+            print("  【4】Show Current Config")
+            print("  【5】Stage 1: Latency Test")
+            print("  【6】Stage 2: Bandwidth Test (from cache)")
+            print("  【7】Full Test")
+            print("  【0】Exit")
+            choice = input("\n  Choice: ").strip()
+            if choice == "1":
+                edit_connection(cfg)
+            elif choice == "2":
+                edit_test_params(cfg)
+            elif choice == "3":
+                edit_output(cfg)
+            elif choice == "4":
+                show_config(cfg)
+            elif choice == "5":
+                run_test(cfg, 1)
+            elif choice == "6":
+                subprocess.run([sys.executable, "main.py", "--load-cache", "cache.json", "--stage", "2"])
+            elif choice == "7":
+                run_test(cfg, 2)
+            elif choice == "0":
+                break
 
 if __name__ == "__main__":
     main()

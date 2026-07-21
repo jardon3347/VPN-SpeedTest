@@ -82,7 +82,7 @@ def main(args=None):
         return 0
 
     reporter = Reporter()
-    scheduler = Scheduler(cfg, reporter)
+    scheduler = Scheduler(cfg)
 
     # --load-cache: use cached results
     if cfg.load_cache:

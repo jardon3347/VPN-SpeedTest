@@ -6,6 +6,10 @@ dist/
 exe_build/
 exe_dist/
 *.spec
-outputs/*.csv
-outputs/*.json
+*.exe
+outputs/
 .env
+cache.db
+cache.json
+.sentry-native/
+.workbuddy/

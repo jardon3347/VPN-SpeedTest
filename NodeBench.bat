@@ -12,56 +12,70 @@ if "%PYTHON%"=="" (
     exit /b 1
 )
 
+:menu
+cls
+echo.
 echo ============================================================
 echo   NodeBench - CLI Launcher
 echo ============================================================
 echo.
-echo   1. Interactive Menu
-echo   2. Stage 1 (Latency)
-echo   3. Stage 2 (Bandwidth)
-echo   4. Full Test (Stage 1 + 2)
-echo   5. GUI Mode
-echo   6. Demo (Self-test)
-echo   0. Exit
+echo   ¡¾1¡¿Stage 1 (Latency)
+echo   ¡¾2¡¿Stage 2 (Bandwidth)
+echo   ¡¾3¡¿GUI Mode
+echo   ¡¾4¡¿Settings
+echo   ¡¾0¡¿Exit
 echo.
 
 set /p CHOICE="   Choice: "
 
-if "%CHOICE%"=="1" goto menu
-if "%CHOICE%"=="2" goto stage1
-if "%CHOICE%"=="3" goto stage2
-if "%CHOICE%"=="4" goto full
-if "%CHOICE%"=="5" goto gui
-if "%CHOICE%"=="6" goto demo
-goto end
-
-:menu
-%PYTHON% menu.py
+if "%CHOICE%"=="1" goto stage1
+if "%CHOICE%"=="2" goto stage2
+if "%CHOICE%"=="3" goto gui
+if "%CHOICE%"=="4" goto settings
+if "%CHOICE%"=="0" goto end
+echo   Invalid choice, try again.
 pause
-goto end
+goto menu
 
 :stage1
+cls
+echo   Running Stage 1 (Latency)...
+echo.
 %PYTHON% main.py --stage 1 --save-cache cache.json
+echo.
+echo   ------------------------------------------------------------
+echo   Enter node numbers above to test (e.g. 1,3-5)
+echo   or press Enter to skip (use top-N auto selection later).
+set /p NODES="   > "
+if not "%NODES%"=="" (
+    echo.
+    echo   Running Stage 2 with selected nodes...
+    echo.
+    %PYTHON% main.py --stage 2 --load-cache cache.json --nodes "%NODES%"
+)
 pause
-goto end
+goto menu
 
 :stage2
+cls
+echo   Running Stage 2 (Bandwidth)...
+echo.
 %PYTHON% main.py --stage 2 --load-cache cache.json
 pause
-goto end
-
-:full
-%PYTHON% main.py --stage 2
-pause
-goto end
+goto menu
 
 :gui
 start "" pythonw main.py --gui
-goto end
+goto menu
 
-:demo
-%PYTHON% main.py --demo
-pause
-goto end
+:settings
+cls
+echo.
+echo ============================================================
+echo   NodeBench - Settings
+echo ============================================================
+echo.
+%PYTHON% menu.py --settings
+goto menu
 
 :end

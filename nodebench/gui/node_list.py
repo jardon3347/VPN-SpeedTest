@@ -2,15 +2,26 @@ from __future__ import annotations
 from typing import Optional
 import customtkinter as ctk
 from nodebench.models import Node
+from nodebench.gui.i18n import t
 
-COLUMNS = [
-    ("",         30,  None,    "center"),
-    ("Name",     180, "name",  "w"),
-    ("Latency",  70,  "lat",   "e"),
-    ("Download", 75,  "dl",    "e"),
-    ("Upload",   75,  "ul",    "e"),
-    ("Status",   50,  "status", "center"),
+COL_KEYS = [
+    ("sel",    30,  None,    "center"),
+    ("name",   180, "name",  "w"),
+    ("lat",    70,  "lat",   "e"),
+    ("dl",     75,  "dl",    "e"),
+    ("ul",     75,  "ul",    "e"),
+    ("status", 50,  "status", "center"),
 ]
+
+def get_columns():
+    return [
+        ("",         30,  None,    "center"),
+        (t("col_name"),     180, "name",  "w"),
+        (t("col_latency"),  70,  "lat",   "e"),
+        (t("col_download"), 75,  "dl",    "e"),
+        (t("col_upload"),   75,  "ul",    "e"),
+        (t("col_status"),   50,  "status", "center"),
+    ]
 
 ROW_HEIGHT = 28
 COLORS = {
@@ -29,11 +40,12 @@ def flag_emoji(country_code: str) -> str:
     return chr(0x1F1E6 + ord(country_code[0]) - ord("A")) + chr(0x1F1E6 + ord(country_code[1]) - ord("A"))
 
 class NodeTable(ctk.CTkScrollableFrame):
-    def __init__(self, master, **kwargs):
+    def __init__(self, master, on_activate=None, **kwargs):
         super().__init__(master, **kwargs)
         self._rows: list[dict] = []
         self._last_clicked: int = -1
         self._selected_set: set[int] = set()
+        self._on_activate = on_activate  # callback(node) when double-clicked
 
     def clear(self):
         for r in self._rows:
@@ -74,7 +86,8 @@ class NodeTable(ctk.CTkScrollableFrame):
     def _build_header(self):
         hdr_frame = ctk.CTkFrame(self, height=ROW_HEIGHT, fg_color=COLORS["header_bg"])
         hdr_frame.grid(row=0, column=0, sticky="ew", pady=(0, 2))
-        for col_idx, (header, width, _, align) in enumerate(COLUMNS):
+        columns = get_columns()
+        for col_idx, (header, width, _, align) in enumerate(columns):
             lbl = ctk.CTkLabel(hdr_frame, text=header, width=width, anchor=align, font=ctk.CTkFont(size=12, weight="bold"))
             lbl.grid(row=0, column=col_idx, padx=1, sticky="nsew")
         hdr_frame.grid_columnconfigure(1, weight=1)
@@ -84,7 +97,9 @@ class NodeTable(ctk.CTkScrollableFrame):
         frame = ctk.CTkFrame(self, height=ROW_HEIGHT, fg_color=bg)
         frame.grid(row=index + 1, column=0, sticky="ew", pady=1)
         cells = {}
-        for col_idx, (_, width, key, align) in enumerate(COLUMNS):
+        columns = get_columns()
+        na = t("na")
+        for col_idx, (_, width, key, align) in enumerate(columns):
             if key is None:
                 text = "\u2713"
                 color = COLORS["text_ok"] if node.reachable else COLORS["text_dead"]
@@ -92,26 +107,28 @@ class NodeTable(ctk.CTkScrollableFrame):
                 text = node.name
                 color = COLORS["text_ok"] if node.reachable else COLORS["text_dead"]
             elif key == "lat":
-                text = f"{node.latency:.0f} ms" if node.latency else "-"
+                text = f"{node.latency:.0f}{t('unit_ms')}" if node.latency else na
                 color = COLORS["text_ok"]
             elif key == "dl":
-                text = f"{node.download / 8:.1f}" if node.download else "-"
+                text = f"{node.download / 8:.1f}" if node.download else na
                 color = COLORS["text_muted"]
             elif key == "ul":
-                text = f"{node.upload / 8:.1f}" if node.upload else "-"
+                text = f"{node.upload / 8:.1f}" if node.upload else na
                 color = COLORS["text_muted"]
             elif key == "status":
                 text = "\u2713" if node.reachable else "\u2717"
                 color = "#4CAF50" if node.reachable else "#F44336"
             else:
-                text, color = "-", COLORS["text_ok"]
+                text, color = na, COLORS["text_ok"]
             lbl = ctk.CTkLabel(frame, text=text, width=width, anchor=align, font=ctk.CTkFont(size=13), text_color=color)
             lbl.grid(row=0, column=col_idx, padx=1, sticky="nsew")
             cells[key or "sel"] = lbl
         frame.grid_columnconfigure(1, weight=1)
         frame.bind("<Button-1>", lambda e, idx=index: self._on_row_click(e, idx))
+        frame.bind("<Double-Button-1>", lambda e, idx=index: self._on_double_click(idx))
         for l in cells.values():
             l.bind("<Button-1>", lambda e, idx=index: self._on_row_click(e, idx))
+            l.bind("<Double-Button-1>", lambda e, idx=index: self._on_double_click(idx))
         self._rows.append({"frame": frame, "cells": cells, "node": node})
         if node.reachable:
             self._selected_set.add(index)
@@ -133,6 +150,10 @@ class NodeTable(ctk.CTkScrollableFrame):
                 self._selected_set.add(index)
         self._last_clicked = index
         self._refresh_colors()
+
+    def _on_double_click(self, index: int):
+        if self._on_activate and index < len(self._rows):
+            self._on_activate(self._rows[index]["node"])
 
     def _select_range(self, start: int, end: int):
         if start < 0:
@@ -156,7 +177,15 @@ class NodeTable(ctk.CTkScrollableFrame):
     def _update_cells(self, index: int, node: Node):
         if index >= len(self._rows):
             return
+        na = t("na")
         cells = self._rows[index]["cells"]
-        cells["lat"].configure(text=f"{node.latency:.0f} ms" if node.latency else "-")
-        cells["dl"].configure(text=f"{node.download / 8:.1f}" if node.download else "-")
-        cells["ul"].configure(text=f"{node.upload / 8:.1f}" if node.upload else "-")
+        cells["lat"].configure(text=f"{node.latency:.0f}{t('unit_ms')}" if node.latency else na)
+        cells["dl"].configure(text=f"{node.download / 8:.1f}" if node.download else na)
+        cells["ul"].configure(text=f"{node.upload / 8:.1f}" if node.upload else na)
+
+    def refresh_headers(self):
+        """Rebuild header with current language."""
+        if self._rows:
+            self._rows.clear()
+        self.clear()
+        self._build_header()

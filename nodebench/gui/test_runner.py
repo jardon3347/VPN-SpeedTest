@@ -4,6 +4,7 @@ import threading
 from nodebench.mihomo_client import MihomoClient
 from nodebench.models import TestConfig, Node
 from nodebench.speedtest import CloudflareSpeedTest
+from nodebench.gui.i18n import t
 
 class TestRunner(threading.Thread):
     def __init__(self, config: dict, mode: str = "stage2", selected_nodes: list[Node] | None = None):
@@ -38,7 +39,7 @@ class TestRunner(threading.Thread):
         self._post("stage", stage=1, status="connecting")
         with MihomoClient(cfg) as mihomo:
             if not mihomo.healthcheck():
-                self._post("error", message="Cannot reach mihomo API.")
+                self._post("error", message=t("err_cannot_reach_api"))
                 return
             if not cfg.group_name:
                 cfg.group_name = self._auto_group(mihomo)
@@ -48,20 +49,20 @@ class TestRunner(threading.Thread):
             for n in nodes:
                 n.reachable = n.latency is not None
                 if not n.reachable:
-                    n.error = "no mihomo latency"
+                    n.error = t("err_no_latency")
             reachable = sum(1 for n in nodes if n.reachable)
             self._post("stage1_done", nodes=nodes, reachable=reachable, total=len(nodes),
                        groups=group_names, current_group=cfg.group_name)
 
     def _run_stage2(self):
         if not self._selected:
-            self._post("error", message="No nodes selected.")
+            self._post("error", message=t("err_no_nodes"))
             return
         cfg = self._make_cfg()
         self._post("stage", stage=2, status="connecting", count=len(self._selected))
         with MihomoClient(cfg) as mihomo:
             if not mihomo.healthcheck():
-                self._post("error", message="Cannot reach mihomo API.")
+                self._post("error", message=t("err_cannot_reach_api"))
                 return
             if not cfg.group_name:
                 cfg.group_name = self._auto_group(mihomo)
@@ -74,7 +75,7 @@ class TestRunner(threading.Thread):
                 try:
                     mihomo.switch_and_reset(node.name, group_name=cfg.group_name, wait=cfg.switch_wait)
                 except Exception as e:
-                    self._post("node_error", index=i, error=f"switch failed: {e}")
+                    self._post("node_error", index=i, error=t("err_switch_failed", e=e))
                     continue
                 trace = tester.fetch_trace()
                 self._post("trace", index=i, country=trace.country, colo=trace.colo, ip=trace.ip,
@@ -83,27 +84,25 @@ class TestRunner(threading.Thread):
                 def dl_cb(done, total, speed):
                     if not self._cancel.is_set():
                         self._post("dl_progress", index=i, done=done, total=total, speed=speed)
-                try:
-                    dl = tester.run_download(total_bytes=cfg.download_bytes, on_progress=dl_cb)
-                    node.download = dl.mbps
-                    if dl.mbps == 0 and dl.error:
-                        self._post("node_error", index=i, error=f"download: {dl.error} ({cfg.download_bytes // 1_000_000} MB)")
-                except Exception as e:
-                    self._post("node_error", index=i, error=f"download: {e}")
-                    node.download = 0.0
-
-                if self._cancel.is_set():
-                    self._post("cancelled")
-                    return
 
                 def ul_cb(done, total, speed):
                     if not self._cancel.is_set():
                         self._post("ul_progress", index=i, done=done, total=total, speed=speed)
+
                 try:
-                    ul = tester.run_upload(total_bytes=cfg.upload_bytes, on_progress=ul_cb)
+                    dl, ul = tester.run_bandwidth_test(
+                        download_bytes=cfg.download_bytes,
+                        upload_bytes=cfg.upload_bytes,
+                        dl_progress=dl_cb, ul_progress=ul_cb)
+                    node.download = dl.mbps
                     node.upload = ul.mbps
+                    if dl.mbps == 0 and dl.error:
+                        self._post("node_error", index=i, error=t("err_download", error=dl.error))
+                    if ul.mbps == 0 and ul.error:
+                        self._post("node_error", index=i, error=t("err_upload", error=ul.error))
                 except Exception as e:
-                    self._post("node_error", index=i, error=f"upload: {e}")
+                    self._post("node_error", index=i, error=t("err_bandwidth", e=e))
+                    node.download = 0.0
                     node.upload = 0.0
 
                 self._post("node_done", index=i, name=node.name, download=node.download, upload=node.upload)
@@ -117,7 +116,7 @@ class TestRunner(threading.Thread):
                     self._post("best_node", name=best.name, group=cfg.group_name,
                                download=(best.download or 0), upload=(best.upload or 0))
                 except Exception as e:
-                    self._post("node_error", index=-1, error=f"Failed to set best node: {e}")
+                    self._post("node_error", index=-1, error=t("err_best_node", e=e))
 
         self._post("done", count=len(self._selected))
 

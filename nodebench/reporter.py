@@ -25,9 +25,23 @@ class Reporter:
 
     def stage1_result(self, nodes: list[Node]):
         print(f"\n  Stage 1: {len(nodes)} reachable nodes")
-        for i, n in enumerate(nodes):
-            lat = f"{n.latency:.0f}ms" if n.latency else "N/A"
-            print(f"    {i+1:>3}. {lat:>6}  {n.name}")
+        if nodes:
+            sorted_nodes = sorted(nodes, key=lambda n: n.latency or 9999)
+            for i, n in enumerate(sorted_nodes):
+                lat = f"{n.latency:.0f}ms" if n.latency else "N/A"
+                print(f"    {i+1:>3}. {lat:>6}  {n.name}")
+
+    def stage1_error_summary(self, all_nodes: list[Node]):
+        """Show why unreachable nodes failed."""
+        errors = {}
+        for n in all_nodes:
+            if n.error:
+                errors[n.error] = errors.get(n.error, 0) + 1
+        if not errors:
+            return
+        print(f"\n  Stage 1 error details:")
+        for msg, count in sorted(errors.items(), key=lambda x: -x[1]):
+            print(f"    {count}x nodes: {msg}")
 
     def trace(self, name: str, trace):
         print(f"         -> {trace.country}/{trace.colo} ({trace.ip})")
